@@ -478,6 +478,76 @@
 })();`;
   }
 
+  // ---------- debug output functions ----------
+  function downloadFile(content, filename, type = 'text/plain;charset=utf-8') {
+    const blob = new Blob([content], { type });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  function generateDebugFiles(songId, data, prepared) {
+    const baseName = sanitizeFilename(songId || 'suno');
+    
+    // 1. Raw API response
+    downloadFile(
+      JSON.stringify(data, null, 2),
+      `${baseName}_1_raw_api_response.json`
+    );
+    
+    // 2. Cleaned words with timing analysis
+    const timingAnalysis = {
+      wordsClean: prepared.wordsClean,
+      timingStats: {
+        totalWords: prepared.wordsClean.length,
+        maxStartTime: Math.max(...prepared.wordsClean.map(w => w.start)),
+        maxEndTime: Math.max(...prepared.wordsClean.map(w => w.end)),
+        avgDuration: prepared.wordsClean.reduce((sum, w) => sum + (w.end - w.start), 0) / prepared.wordsClean.length,
+        suspectedUnit: Math.max(...prepared.wordsClean.map(w => w.end)) > 600 ? 'milliseconds' : 'seconds'
+      }
+    };
+    downloadFile(
+      JSON.stringify(timingAnalysis, null, 2),
+      `${baseName}_2_cleaned_words_analysis.json`
+    );
+    
+    // 3. All line strategies comparison
+    const lineComparison = {
+      wordGrouped: prepared.linesWord,
+      apiLines: prepared.linesApi,
+      wordWrapped: prepared.linesWordWrapped,
+      stats: {
+        wordGroupedCount: prepared.linesWord.length,
+        apiLinesCount: prepared.linesApi.length,
+        wordWrappedCount: prepared.linesWordWrapped.length
+      }
+    };
+    downloadFile(
+      JSON.stringify(lineComparison, null, 2),
+      `${baseName}_3_line_strategies_comparison.json`
+    );
+    
+    // 4. Raw timing data for first 10 items
+    const rawSample = Array.isArray(data?.aligned_words) ? data.aligned_words.slice(0, 10) 
+                    : Array.isArray(data?.aligned_lyrics) ? data.aligned_lyrics.slice(0, 10)
+                    : [];
+    const rawTimingData = {
+      sampleData: rawSample,
+      detectedFields: {
+        hasAlignedWords: Array.isArray(data?.aligned_words),
+        hasAlignedLyrics: Array.isArray(data?.aligned_lyrics),
+        sampleRate: data?.sample_rate || data?.sampleRate || data?.audio_sample_rate || 'not_found',
+        firstItemKeys: rawSample[0] ? Object.keys(rawSample[0]) : []
+      }
+    };
+    downloadFile(
+      JSON.stringify(rawTimingData, null, 2),
+      `${baseName}_4_raw_timing_sample.json`
+    );
+  }
+
   // ---------- mini modal for strategy selection ----------
   function showStrategyDialog(defaults){
     const overlay = document.createElement('div');
@@ -519,12 +589,12 @@
       </div>
 
       <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
+        <button id="debug" style="padding:6px 10px; border-radius:8px; background:#FF9800; color:#fff; border:0; cursor:pointer;">Debug Files</button>
         <button id="cancel" style="padding:6px 10px; border-radius:8px; background:#444; color:#fff; border:0; cursor:pointer;">Cancel</button>
         <button id="ok" style="padding:6px 10px; border-radius:8px; background:#4CAF50; color:#fff; border:0; cursor:pointer;">Build JSX</button>
       </div>
     `;
     overlay.appendChild(card);
-    document.body.appendChild(overlay);
 
     card.querySelector('#hlchunk').value = String(defaults.highlightChunk || CFG.DEFAULT_HIGHLIGHT_CHUNK);
     if (defaults.strategy) {
@@ -534,6 +604,10 @@
 
     return new Promise((resolve) => {
       card.querySelector('#cancel').onclick = () => { document.body.removeChild(overlay); resolve(null); };
+      card.querySelector('#debug').onclick = () => {
+        document.body.removeChild(overlay);
+        resolve({ debugOnly: true });
+      };
       card.querySelector('#ok').onclick = () => {
         const strategy = card.querySelector('input[name="strategy"]:checked')?.value || 'word';
         const highlightChunk = parseInt(card.querySelector('#hlchunk').value, 10) || 1;
@@ -597,6 +671,17 @@
 
           // fetch & prep only now
           const prepared = await prepareForSong(songId);
+          const data = cache[songId].data;
+
+          // If debug only, generate debug files and exit
+          if (pick.debugOnly) {
+            generateDebugFiles(songId, data, prepared);
+            btn.textContent = 'Debug files downloaded ✓';
+            btn.disabled = false;
+            btn.dataset.busy = '0';
+            setTimeout(() => { btn.textContent = original; }, 2000);
+            return;
+          }
 
           let lines;
           if (pick.strategy === 'api') {
@@ -624,12 +709,7 @@
             offset: pick.offset
           });
 
-          const blob = new Blob([jsx], { type: 'text/plain;charset=utf-8' });
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(blob);
-          a.download = `${sanitizeFilename(songId||'suno')}_import_to_AE.jsx`;
-          a.click();
-          setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+          downloadFile(jsx, `${sanitizeFilename(songId||'suno')}_import_to_AE.jsx`);
 
           btn.textContent = 'Done ✓  (click again to re-download)';
         } catch (err) {
