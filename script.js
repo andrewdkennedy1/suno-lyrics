@@ -141,6 +141,39 @@
   }
   function firstLyricStart(validLines) { return validLines.length ? validLines[0].start : 0; }
 
+  /*** ----------------------- SRT GENERATION ----------------------- ***/
+  function generateSRT(slides) {
+    let srtContent = '';
+    let counter = 1;
+    
+    slides.forEach(slide => {
+      slide.lines.forEach(line => {
+        const startTime = formatSRTTime(line.start);
+        const endTime = formatSRTTime(line.end);
+        const text = line.text.replace(/[.,!?;:"']/g, ''); // Remove punctuation for clean karaoke style
+        
+        srtContent += `${counter}\n`;
+        srtContent += `${startTime} --> ${endTime}\n`;
+        srtContent += `${text}\n\n`;
+        counter++;
+      });
+    });
+    
+    return srtContent.trim();
+  }
+  
+  function formatSRTTime(seconds) {
+    const totalMs = Math.round(seconds * 1000);
+    const ms = totalMs % 1000;
+    const totalSeconds = Math.floor(totalMs / 1000);
+    const secs = totalSeconds % 60;
+    const totalMinutes = Math.floor(totalSeconds / 60);
+    const mins = totalMinutes % 60;
+    const hours = Math.floor(totalMinutes / 60);
+    
+    return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+  }
+
   /*** ------------------------ JSX EMITTER ------------------------ ***/
   function generateJSX(songId, slides, totalDuration, firstStart) {
     const payload = {
@@ -358,11 +391,14 @@
 
           btn.textContent = 'Rendering JSX…';
           const jsx = generateJSX(songId, slides, duration, firstStart);
+          const srt = generateSRT(slides);
+          
           downloadFile(jsx, `${songId}_lyric_slides_boxtext.jsx`);
           downloadFile(JSON.stringify(data, null, 2), `${songId}_raw_data.json`);
+          downloadFile(srt, `${songId}_subtitles.srt`);
 
-          btn.textContent = '✓ Slides Ready';
-          setTimeout(() => (btn.textContent = 'AE: Build Lyric Slides'), 1800);
+          btn.textContent = '✓ Files Ready (JSX + SRT + JSON)';
+          setTimeout(() => (btn.textContent = 'AE: Build Lyric Slides'), 2000);
         } catch (err) {
           console.error(err);
           btn.textContent = 'Error — open console';
